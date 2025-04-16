@@ -1,0 +1,36 @@
+# Python specific
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# ZenML specific
+.zenml/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific
+.idea/
+.vscode/
+*.iml
+
+# Data files
+*.pdf
+*.docx
+*.txt
+!requirements.txt
+vector_store/
