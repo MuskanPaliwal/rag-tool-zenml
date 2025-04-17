@@ -3,6 +3,9 @@
 *.py[cod]
 *.pyo
 *.pyd
+
+# Pylint specific
+.pylintrc
 *.env
 venv/
 ENV/
