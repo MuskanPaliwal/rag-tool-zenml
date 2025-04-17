@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import pypdf
 from langchain.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.schema import Document
+from zenml.steps import step
 
 class DocumentProcessor:
     """
@@ -104,3 +105,49 @@ class DocumentProcessor:
         }
         
         return metadata
+
+
+# ZenML steps for document processing
+@step
+def process_document(file_path: str) -> List[Document]:
+    """
+    ZenML step to process a document or directory of documents.
+    
+    Args:
+        file_path: Path to the document or directory
+        
+    Returns:
+        List of Document objects
+    """
+    if os.path.isdir(file_path):
+        return DocumentProcessor.process_directory(file_path)
+    else:
+        return DocumentProcessor.process_pdf(file_path)
+
+
+@step
+def extract_texts_from_documents(documents: List[Document]) -> List[str]:
+    """
+    ZenML step to extract text from documents.
+    
+    Args:
+        documents: List of Document objects
+        
+    Returns:
+        List of text strings
+    """
+    return [doc.page_content for doc in documents]
+
+
+@step
+def get_document_metadata(file_path: str) -> Dict[str, Any]:
+    """
+    ZenML step to extract metadata from a document.
+    
+    Args:
+        file_path: Path to the document
+        
+    Returns:
+        Dictionary containing document metadata
+    """
+    return DocumentProcessor.get_document_metadata(file_path)
