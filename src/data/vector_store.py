@@ -8,9 +8,14 @@ import numpy as np
 import faiss
 from langchain.schema import Document
 from zenml.steps import step
-import hashlib
-from functools import lru_cache
-from collections import defaultdict
+from pathlib import Path
+from ..utils.vector_utils import (
+    VectorStoreError, ConfigurationError, SearchError, StorageError,
+    validate_embeddings, validate_directory,
+    create_config, save_config, load_config,
+    save_index, load_index,
+    save_data, load_data
+)
 
 class VectorStore:
     """
@@ -31,6 +36,15 @@ class VectorStore:
             index_type: Type of FAISS index to use
             cache_size: Size of LRU cache for embeddings
         """
+        if embedding_dimension <= 0:
+            raise ConfigurationError("Embedding dimension must be positive")
+            
+        if cache_size <= 0:
+            raise ConfigurationError("Cache size must be positive")
+            
+        if index_type not in ["L2", "IP"]:
+            raise ConfigurationError(f"Unsupported index type: {index_type}")
+            
         self.embedding_dimension = embedding_dimension
         self.index_type = index_type
         self.cache_size = cache_size
@@ -222,29 +236,23 @@ class VectorStore:
         os.makedirs(directory, exist_ok=True)
         
         # Save the index
-        faiss.write_index(self.index, os.path.join(directory, "index.faiss"))
+        save_index(self.index, os.path.join(directory, "index.faiss"))
         
         # Save the documents and metadata
-        with open(os.path.join(directory, "documents.pkl"), "wb") as f:
-            pickle.dump(self.documents, f)
-        
-        with open(os.path.join(directory, "metadata.pkl"), "wb") as f:
-            pickle.dump(self.metadata, f)
+        save_data(self.documents, os.path.join(directory, "documents.pkl"))
+        save_data(self.metadata, os.path.join(directory, "metadata.pkl"))
         
         # Save tag index
-        with open(os.path.join(directory, "tag_index.pkl"), "wb") as f:
-            pickle.dump(dict(self.tag_index), f)
+        save_data(dict(self.tag_index), os.path.join(directory, "tag_index.pkl"))
         
         # Save config
-        config = {
-            "embedding_dimension": self.embedding_dimension,
-            "index_type": self.index_type,
-            "cache_size": self.cache_size,
-            "num_documents": len(self.documents)
-        }
-        
-        with open(os.path.join(directory, "config.pkl"), "wb") as f:
-            pickle.dump(config, f)
+        config = create_config(
+            embedding_dimension=self.embedding_dimension,
+            index_type=self.index_type,
+            cache_size=self.cache_size,
+            num_documents=len(self.documents)
+        )
+        save_config(config, os.path.join(directory, "config.pkl"))
         
     @classmethod
     def load(cls, directory: str) -> "VectorStore":
@@ -258,8 +266,7 @@ class VectorStore:
             Loaded VectorStore
         """
         # Load config
-        with open(os.path.join(directory, "config.pkl"), "rb") as f:
-            config = pickle.load(f)
+        config = load_config(os.path.join(directory, "config.pkl"))
         
         # Create instance
         instance = cls(
@@ -269,18 +276,14 @@ class VectorStore:
         )
         
         # Load index
-        instance.index = faiss.read_index(os.path.join(directory, "index.faiss"))
+        instance.index = load_index(os.path.join(directory, "index.faiss"))
         
         # Load documents and metadata
-        with open(os.path.join(directory, "documents.pkl"), "rb") as f:
-            instance.documents = pickle.load(f)
-        
-        with open(os.path.join(directory, "metadata.pkl"), "rb") as f:
-            instance.metadata = pickle.load(f)
+        instance.documents = load_data(os.path.join(directory, "documents.pkl"))
+        instance.metadata = load_data(os.path.join(directory, "metadata.pkl"))
         
         # Load tag index
-        with open(os.path.join(directory, "tag_index.pkl"), "rb") as f:
-            instance.tag_index = defaultdict(set, pickle.load(f))
+        instance.tag_index = defaultdict(set, load_data(os.path.join(directory, "tag_index.pkl")))
         
         return instance
 
