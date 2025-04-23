@@ -1,14 +1,13 @@
 """
 Vector store module for storing and retrieving document embeddings.
 """
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 import os
 import pickle
 import numpy as np
 import faiss
 from langchain.schema import Document
 from zenml.steps import step
-from zenml.artifacts.artifact import Artifact
 
 class VectorStore:
     """
@@ -154,7 +153,6 @@ class VectorStore:
         
         return instance
 
-
 # ZenML steps for vector store operations
 @step
 def initialize_vector_store(
@@ -176,7 +174,6 @@ def initialize_vector_store(
         index_type=index_type
     )
 
-
 @step
 def add_documents_to_vector_store(
     vector_store: VectorStore,
@@ -194,13 +191,9 @@ def add_documents_to_vector_store(
     Returns:
         Updated VectorStore
     """
-    vector_store.add_documents(
-        documents=documents,
-        embeddings=embeddings_data["embeddings"]
-    )
-    
+    embeddings = embeddings_data["embeddings"]
+    vector_store.add_documents(documents, embeddings)
     return vector_store
-
 
 @step
 def save_vector_store(
@@ -219,3 +212,37 @@ def save_vector_store(
     """
     vector_store.save(directory)
     return os.path.join(directory, "vector_store")
+
+@step
+def load_vector_store(
+    directory: str
+) -> VectorStore:
+    """
+    ZenML step to load a vector store from disk
+    
+    Args:
+        directory: Directory to load from
+        
+    Returns:
+        Loaded VectorStore
+    """
+    return VectorStore.load(directory)
+
+@step
+def search_vector_store(
+    vector_store: VectorStore,
+    query_embedding: np.ndarray,
+    k: int = 5
+) -> Tuple[List[Document], List[float]]:
+    """
+    ZenML step to search the vector store
+    
+    Args:
+        vector_store: VectorStore instance
+        query_embedding: Embedding of the query
+        k: Number of results to return
+        
+    Returns:
+        Tuple of (list of documents, list of similarity scores)
+    """
+    return vector_store.search(query_embedding, k)
