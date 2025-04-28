@@ -1,140 +1,203 @@
-# RAG Tool with ZenML
+# ZenML RAG System
 
-A Retrieval-Augmented Generation (RAG) tool built with ZenML that generates embeddings from documents and answers questions about them. This tool can be integrated with Composio as a local tool.
+A Retrieval-Augmented Generation (RAG) system built with ZenML pipelines for document question-answering.
+
+## Overview
+
+This RAG system allows you to:
+
+1. Process documents (PDFs, DOCx, TXT, HTML, etc.) into a vector database
+2. Query the processed documents using natural language
+3. Retrieve the most relevant document chunks for your queries
 
 ## Features
 
-- **Document Processing**: Extract text from PDFs and other document formats
-- **Text Chunking**: Split documents into manageable segments for embedding
-- **Embedding Generation**: Generate vector representations of text using sentence-transformers
-- **Vector Storage**: Store and retrieve embeddings efficiently using FAISS
-- **Question Answering**: Answer questions about documents using RAG approach
-- **ZenML Integration**: Track experiments, manage artifacts, and ensure reproducibility
-- **Composio Integration**: Expose RAG functionality as a local tool for Composio
+- **Multi-format Document Support**: Process PDFs, Word documents, text files, HTML, and more
+- **Smart Text Chunking**: Split documents intelligently with customizable chunk sizes
+- **Efficient Embedding**: Generate embeddings using SentenceTransformers models
+- **Fast Vector Search**: Use FAISS for efficient similarity search
+- **Hybrid Search**: Combine semantic search with keyword matching for better results
+- **ZenML Integration**: Leverage ZenML for pipeline orchestration and reproducibility
+- **CLI Interface**: Simple command-line interface for document processing and querying
 
-## Architecture
-
-The project is structured as follows:
+## Project Structure
 
 ```
-rag-tool-zenml/
-├── README.md
-├── requirements.txt
+rag_system/
 ├── src/
-│   ├── __init__.py
-│   ├── composio_tool/
-│   │   ├── __init__.py
-│   │   └── rag_tool.py           # Composio tool implementation
-│   ├── data/
-│   │   ├── __init__.py
-│   │   └── vector_store.py       # Vector database management
+│   ├── utils/
+│   │   ├── documents_processor.py   # Document loading and processing
+│   │   ├── text_splitter.py         # Text chunking
+│   │   └── vector_utils.py          # Vector operations utilities
 │   ├── models/
-│   │   ├── __init__.py
-│   │   └── embeddings.py         # Embedding model management
-│   └── utils/
-│       ├── __init__.py
-│       ├── document_processor.py # Document processing utilities
-│       └── text_splitter.py      # Text chunking utilities
-├── pipelines/
-│   ├── __init__.py
-│   ├── document_pipeline.py      # Document ingestion pipeline
-│   └── query_pipeline.py         # Query processing pipeline
-└── run.py                        # Main entry point
+│   │   └── embeddings.py            # Embedding models
+│   ├── data/
+│   │   └── vector_store.py          # Vector storage and retrieval
+│   └── pipelines/
+│       ├── document_pipeline.py     # Document processing pipeline
+│       └── query_pipeline.py        # Query pipeline
+├── rag_system.py                    # Main RAG system interface
+├── main.py                          # Command-line entry point
+└── README.md                        # Documentation
 ```
 
 ## Installation
 
 1. Clone the repository:
+
 ```bash
-git clone https://github.com/MuskanPaliwal/rag-tool-zenml.git
-cd rag-tool-zenml
+git clone https://github.com/yourusername/rag-system.git
+cd rag-system
 ```
 
-2. Create and activate a virtual environment:
+2. Install the required dependencies:
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install zenml langchain sentence-transformers faiss-cpu pypdf
 ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+3. For additional document format support:
 
-4. Set up environment variables:
 ```bash
-cp .env.example .env
-# Edit .env with your OpenAI API key and other configurations
+pip install unstructured
 ```
 
 ## Usage
 
-### Document Ingestion
+### Command Line Interface
 
-To ingest a document and generate embeddings:
+The `main.py` script provides a simple command-line interface with three modes of operation:
 
 ```bash
-python run.py ingest /path/to/document.pdf
+# Process documents
+python main.py process --document-path path/to/documents/ --storage-path ./vector_db
+
+# Query documents
+python main.py query --storage-path ./vector_db --query "What is the main topic of these documents?"
+
+# Interactive mode (ask multiple questions)
+python main.py interactive --storage-path ./vector_db
 ```
 
-Options:
-- `--chunk-size`: Size of each text chunk (default: 1000)
+### Options
+
+- `--document-path`, `-d`: Path to document or directory to process
+- `--storage-path`, `-s`: Path to store the vector database (default: temporary directory)
+- `--query`, `-q`: Query string for searching documents
+- `--chunk-size`: Size of document chunks (default: 1000)
 - `--chunk-overlap`: Overlap between chunks (default: 200)
-- `--embedding-model`: Name of the embedding model (default: all-MiniLM-L6-v2)
-- `--vector-store-dir`: Directory to save the vector store (default: vector_store)
+- `--top-k`, `-k`: Number of results to return for queries (default: 3)
+- `--embedding-model`, `-m`: Name of embedding model to use (default: "all-MiniLM-L6-v2")
+- `--hybrid-search`: Use hybrid search combining semantic and keyword matching
 
-### Question Answering
+### Programmatic Usage
 
-To ask a question about an ingested document:
+You can also use the RAG system programmatically in your Python code:
 
-```bash
-python run.py query "What is the main topic of the document?"
-```
-
-Options:
-- `--vector-store-dir`: Directory of the vector store (default: vector_store)
-- `--embedding-model`: Name of the embedding model (default: all-MiniLM-L6-v2)
-- `--k`: Number of results to return (default: 5)
-
-### Using as a Composio Tool
-
-1. Install Composio:
-```bash
-pip install composio_core
-```
-
-2. Set up your Composio API key:
-```bash
-export COMPOSIO_API_KEY=your_api_key
-```
-
-3. Import and use the RAG tool in your Composio application:
 ```python
-from src.composio_tool.rag_tool import rag_tool
+from rag_system import RAGSystem
 
-# Register the tool with your Composio application
+# Initialize RAG system
+rag = RAGSystem(storage_path="./vector_db")
+
+# Process a document or directory
+result = rag.process_documents(
+    document_path="path/to/documents/",
+    chunk_size=1000,
+    chunk_overlap=200
+)
+print(f"Processed {result['num_chunks']} document chunks")
+
+# Query the processed documents
+answer = rag.query(
+    query="What is the main topic discussed in these documents?",
+    top_k=3,
+    hybrid_search=True
+)
+
+# Print results
+for result in answer['results']:
+    print(f"Rank {result['rank']} (Score: {result['score']:.4f})")
+    print(f"Content: {result['content']}")
+    print(f"Source: {result['source']}")
 ```
 
-## Why ZenML?
+## Customization
 
-ZenML provides several advantages for this RAG tool:
+### Embedding Models
 
-1. **Pipeline Management**: ZenML allows us to create modular, reusable pipelines for document processing and question answering.
+You can use different SentenceTransformers models by changing the `embedding_model` parameter:
 
-2. **Experiment Tracking**: Track different embedding models and RAG configurations to optimize performance.
+- `all-MiniLM-L6-v2` (default): Fast and balanced
+- `all-mpnet-base-v2`: Higher quality but slower
+- `paraphrase-multilingual-MiniLM-L12-v2`: For multilingual support
 
-3. **Artifact Management**: Store and version document embeddings efficiently.
+### Vector Search
 
-4. **Reproducibility**: Make the RAG tool reproducible across different environments.
+- Change `index_type` to "IP" (Inner Product) for cosine similarity instead of L2 distance
+- Use `hybrid_search=True` to combine semantic search with keyword matching
 
-5. **Integration Capabilities**: ZenML integrates with various embedding models, vector databases, and LLMs.
+### Document Chunking
 
-6. **Deployment Options**: Easily deploy the RAG tool as a service.
+- Modify `chunk_size` and `chunk_overlap` to optimize for your specific documents
+- For longer documents, increase chunk size
+- For technical documents, decrease chunk size and increase overlap
 
-## Contributing
+## Integration with LLMs
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+To create a complete RAG system, integrate with an LLM:
+
+```python
+from rag_system import RAGSystem
+import openai  # or any other LLM API
+
+# Initialize RAG system and process documents
+rag = RAGSystem(storage_path="./vector_db")
+
+# Process documents if needed
+if not os.path.exists("./vector_db"):
+    rag.process_documents("path/to/documents/")
+
+# Query function with LLM integration
+def answer_question(query, top_k=3):
+    # Get relevant context from RAG system
+    results = rag.query(query, top_k=top_k)
+    
+    # Prepare context for the LLM
+    context = "\n\n".join([r["content"] for r in results["results"]])
+    
+    # Create prompt with context
+    prompt = f"Answer the question based on the following context:\n\nContext:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+    
+    # Call LLM API
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    return {
+        "answer": response.choices[0].message["content"],
+        "sources": [r["source"] for r in results["results"]]
+    }
+
+# Example usage
+result = answer_question("What are the key benefits described in the document?")
+print(result["answer"])
+print(f"Sources: {result['sources']}")
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **FileNotFoundError**: Ensure the document path is correct and accessible.
+2. **Memory Issues**: For large documents, reduce batch size or chunk size.
+3. **CUDA Errors**: Set device to 'cpu' in the embeddings module if you encounter GPU-related errors.
+4. **Unsupported File Types**: Ensure you have the necessary dependencies for all file types (e.g., `unstructured` for Word documents).
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
