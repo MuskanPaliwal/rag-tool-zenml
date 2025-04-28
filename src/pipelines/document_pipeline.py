@@ -1,135 +1,132 @@
-import logging
-from typing import List
+"""
+Document processing pipeline for RAG system.
+"""
+from typing import List, Dict, Any
 from pathlib import Path
-import numpy as np
-
-from zenml import pipeline
+from zenml.pipelines import pipeline
 from zenml.steps import step
-from zenml.artifacts import DataArtifact
-from zenml.steps import Output
+from zenml.logger import get_logger
+from langchain.schema import Document
 
-from data.vector_store import initialize_vector_store, add_documents_to_vector_store, save_vector_store
-from models.embedding import get_embedding_model
-from utils.text_splitter import TextSplitter
-from utils.document_processor import DocumentProcessor
+from ..utils.document_processor import process_document
+from ..utils.text_splitter import initialize_text_splitter, split_documents
+from ..models.embedding import initialize_embedding_model, generate_embeddings
+from ..data.vector_store import (
+    initialize_vector_store, 
+    set_embedding_function,
+    add_documents_to_vector_store,
+    save_vector_store
+)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-@step
-def process_documents_step(
-    documents: List[str],
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200
-) -> Output(processed_docs=List[str], chunks=List[str]):
-    """
-    Process and split documents into chunks.
-    
-    Args:
-        documents: List of document texts
-        chunk_size: Size of text chunks
-        chunk_overlap: Overlap between chunks
-        
-    Returns:
-        Tuple of processed documents and chunks
-    """
-    try:
-        # Process documents
-        document_processor = DocumentProcessor()
-        processed_docs = document_processor.process_documents(documents)
-        
-        # Split into chunks
-        text_splitter = TextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        chunks = text_splitter.split_text(processed_docs)
-        
-        logger.info(f"Processed {len(documents)} documents into {len(chunks)} chunks")
-        return processed_docs, chunks
-        
-    except Exception as e:
-        logger.error(f"Error processing documents: {str(e)}")
-        raise
+logger = get_logger(__name__)
 
 @step
-def generate_embeddings_step(
-    chunks: List[str]
-) -> Output(embeddings=np.ndarray):
+def get_document_path(document_path: str) -> str:
     """
-    Generate embeddings for document chunks.
+    ZenML step to validate and return document path.
     
     Args:
-        chunks: List of document chunks
+        document_path: Path to document or directory
         
     Returns:
-        Array of embeddings
+        Validated document path
     """
-    try:
-        embedding_model = get_embedding_model()
-        embeddings = embedding_model.get_embeddings(chunks)
-        logger.info(f"Generated embeddings for {len(chunks)} chunks")
-        return embeddings
+    path = Path(document_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Document path does not exist: {document_path}")
+    
+    logger.info(f"Processing document path: {document_path}")
+    return str(path)
+
+@step
+def combine_pipeline_outputs(
+    documents: List[Document],
+    vector_store_path: str
+) -> Dict[str, Any]:
+    """
+    ZenML step to combine outputs from pipeline steps.
+    
+    Args:
+        documents: Processed documents
+        vector_store_path: Path to saved vector store
         
-    except Exception as e:
-        logger.error(f"Error generating embeddings: {str(e)}")
-        raise
+    Returns:
+        Dictionary with pipeline outputs
+    """
+    return {
+        "num_documents": len(documents),
+        "vector_store_path": vector_store_path
+    }
 
 @pipeline
 def document_processing_pipeline(
-    documents: List[str],
+    document_path: str,
+    output_dir: str,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
-    embedding_dimension: int = 768,
-    vector_store_dir: str = "vector_store"
+    embedding_model_name: str = "all-MiniLM-L6-v2",
+    index_type: str = "L2"
 ):
     """
-    Document processing pipeline for RAG.
+    Pipeline for processing documents and creating a vector store.
     
     Args:
-        documents: List of document texts to process
-        chunk_size: Size of text chunks
+        document_path: Path to document or directory
+        output_dir: Directory to save vector store
+        chunk_size: Size of document chunks
         chunk_overlap: Overlap between chunks
-        embedding_dimension: Dimension of embeddings
-        vector_store_dir: Directory to save vector store
+        embedding_model_name: Name of embedding model
+        index_type: Type of FAISS index
     """
-    try:
-        # Create output directory
-        output_dir = Path(vector_store_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Process documents and get chunks
-        processed_docs, chunks = process_documents_step(
-            documents=documents,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        
-        # Generate embeddings
-        embeddings = generate_embeddings_step(chunks=chunks)
-        
-        # Initialize vector store
-        vector_store = initialize_vector_store(
-            embedding_dimension=embedding_dimension
-        )
-        
-        # Add documents to vector store
-        vector_store = add_documents_to_vector_store(
-            vector_store=vector_store,
-            documents=chunks,
-            embeddings_data={"embeddings": embeddings}
-        )
-        
-        # Save vector store
-        save_path = save_vector_store(
-            vector_store=vector_store,
-            directory=str(output_dir)
-        )
-        
-        logger.info(f"Vector store saved to: {save_path}")
-        return save_path
-        
-    except Exception as e:
-        logger.error(f"Pipeline execution failed: {str(e)}")
-        raise
+    # Get validated document path
+    doc_path = get_document_path(document_path)
+    
+    # Process documents
+    documents = process_document(doc_path)
+    
+    # Initialize text splitter and split documents
+    text_splitter = initialize_text_splitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
+    )
+    split_docs = split_documents(documents, text_splitter)
+    
+    # Initialize embedding model
+    embedding_model = initialize_embedding_model(
+        model_name=embedding_model_name
+    )
+    
+    # Get embedding dimension
+    embeddings_data = generate_embeddings(
+        [split_docs[0].page_content] if split_docs else [""],
+        embedding_model
+    )
+    embedding_dimension = embeddings_data["dimension"]
+    
+    # Initialize vector store
+    vector_store = initialize_vector_store(
+        embedding_dimension=embedding_dimension,
+        index_type=index_type
+    )
+    
+    # Set embedding function
+    vector_store = set_embedding_function(vector_store, embedding_model)
+    
+    # Generate embeddings and add to vector store
+    embeddings_data = generate_embeddings(
+        [doc.page_content for doc in split_docs],
+        embedding_model
+    )
+    
+    # Add documents to vector store
+    vector_store = add_documents_to_vector_store(
+        vector_store,
+        split_docs,
+        embeddings_data["embeddings"]
+    )
+    
+    # Save vector store
+    vector_store_path = save_vector_store(vector_store, output_dir)
+    
+    # Combine outputs
+    return combine_pipeline_outputs(split_docs, vector_store_path)
