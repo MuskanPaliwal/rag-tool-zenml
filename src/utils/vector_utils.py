@@ -1,87 +1,83 @@
 """
-Utility functions for vector store operations.
+Utility functions for vector operations and storage.
 """
-from typing import List, Dict, Any, Optional, Set
+from typing import Dict, Any
 import os
 import pickle
 import numpy as np
-from pathlib import Path
+import faiss
+from zenml.logger import get_logger
 
+logger = get_logger(__name__)
+
+# Custom exceptions
 class VectorStoreError(Exception):
     """Base exception for vector store errors."""
-    pass
 
 class ConfigurationError(VectorStoreError):
-    """Raised when there's a configuration issue."""
-    pass
+    """Exception for configuration errors."""
 
 class SearchError(VectorStoreError):
-    """Raised when there's an error during search."""
-    pass
+    """Exception for search errors."""
 
 class StorageError(VectorStoreError):
-    """Raised when there's an error during storage operations."""
-    pass
+    """Exception for storage errors."""
 
-def validate_embeddings(
-    embeddings: Optional[np.ndarray],
-    documents: List[Any],
-    embedding_dimension: int
-) -> np.ndarray:
+def validate_embeddings(embeddings: np.ndarray, dimension: int) -> bool:
     """
-    Validate and normalize embeddings.
+    Validate that embeddings have the correct shape and type.
     
     Args:
-        embeddings: Optional array of embeddings
-        documents: List of documents
-        embedding_dimension: Expected embedding dimension
+        embeddings: Array of embeddings
+        dimension: Expected dimension
         
     Returns:
-        Validated embeddings array
+        True if embeddings are valid
         
     Raises:
-        ValueError: If embeddings are invalid
+        ConfigurationError: If embeddings are invalid
     """
-    if embeddings is None:
-        return None
-        
     if not isinstance(embeddings, np.ndarray):
-        raise ValueError("Embeddings must be a NumPy array")
+        raise ConfigurationError("Embeddings must be a numpy array")
         
-    if embeddings.shape[0] != len(documents):
-        raise ValueError(
-            f"Number of embeddings ({embeddings.shape[0]}) does not match "
-            f"number of documents ({len(documents)})"
+    if len(embeddings.shape) != 2:
+        raise ConfigurationError(f"Embeddings must be 2D, got shape {embeddings.shape}")
+        
+    if embeddings.shape[1] != dimension:
+        raise ConfigurationError(
+            f"Embeddings have dimension {embeddings.shape[1]}, expected {dimension}"
         )
         
-    if embeddings.shape[1] != embedding_dimension:
-        raise ValueError(
-            f"Embedding dimension ({embeddings.shape[1]}) does not match "
-            f"expected dimension ({embedding_dimension})"
-        )
-        
-    return embeddings
-
-def validate_directory(directory: str) -> str:
+    return True
+    
+def validate_directory(directory: str, create: bool = False) -> bool:
     """
-    Validate and create directory if needed.
+    Validate that a directory exists or create it.
     
     Args:
         directory: Directory path
+        create: Whether to create the directory if it doesn't exist
         
     Returns:
-        Absolute path to directory
+        True if directory is valid
         
     Raises:
-        ValueError: If directory cannot be created
+        StorageError: If directory is invalid and not created
     """
-    try:
-        abs_path = os.path.abspath(directory)
-        os.makedirs(abs_path, exist_ok=True)
-        return abs_path
-    except Exception as e:
-        raise ValueError(f"Failed to create directory {directory}: {str(e)}")
-
+    if os.path.exists(directory):
+        if not os.path.isdir(directory):
+            raise StorageError(f"Path exists but is not a directory: {directory}")
+        return True
+        
+    if create:
+        try:
+            os.makedirs(directory, exist_ok=True)
+            return True
+        except Exception as e:
+            raise StorageError(f"Failed to create directory {directory}: {str(e)}") from e
+            
+    raise StorageError(f"Directory does not exist: {directory}")
+    
 def create_config(
     embedding_dimension: int,
     index_type: str,
@@ -89,13 +85,13 @@ def create_config(
     num_documents: int
 ) -> Dict[str, Any]:
     """
-    Create configuration dictionary for vector store.
+    Create a configuration dictionary.
     
     Args:
         embedding_dimension: Dimension of embeddings
         index_type: Type of FAISS index
         cache_size: Size of LRU cache
-        num_documents: Number of documents
+        num_documents: Number of documents in the store
         
     Returns:
         Configuration dictionary
@@ -104,108 +100,103 @@ def create_config(
         "embedding_dimension": embedding_dimension,
         "index_type": index_type,
         "cache_size": cache_size,
-        "num_documents": num_documents
+        "num_documents": num_documents,
+        "version": "1.0"
     }
-
-def save_config(
-    config: Dict[str, Any],
-    directory: str,
-    filename: str = "config.pkl"
-) -> None:
+    
+def save_config(config: Dict[str, Any], file_path: str) -> None:
     """
-    Save configuration to file.
+    Save configuration to disk.
     
     Args:
         config: Configuration dictionary
-        directory: Directory to save in
-        filename: Name of config file
+        file_path: Path to save to
     """
-    config_path = os.path.join(directory, filename)
-    with open(config_path, "wb") as f:
-        pickle.dump(config, f)
-
-def load_config(
-    directory: str,
-    filename: str = "config.pkl"
-) -> Dict[str, Any]:
+    try:
+        with open(file_path, 'wb') as f:
+            pickle.dump(config, f)
+        logger.info("Saved configuration to %s", file_path)
+    except Exception as e:
+        raise StorageError(f"Failed to save configuration to {file_path}: {str(e)}") from e
+        
+def load_config(file_path: str) -> Dict[str, Any]:
     """
-    Load configuration from file.
+    Load configuration from disk.
     
     Args:
-        directory: Directory containing config
-        filename: Name of config file
+        file_path: Path to load from
         
     Returns:
         Configuration dictionary
     """
-    config_path = os.path.join(directory, filename)
-    with open(config_path, "rb") as f:
-        return pickle.load(f)
-
-def save_index(
-    index: Any,
-    directory: str,
-    filename: str = "index.faiss"
-) -> None:
+    try:
+        with open(file_path, 'rb') as f:
+            config = pickle.load(f)
+        logger.info("Loaded configuration from %s", file_path)
+        return config
+    except Exception as e:
+        raise StorageError(f"Failed to load configuration from {file_path}: {str(e)}") from e
+        
+def save_index(index: faiss.Index, file_path: str) -> None:
     """
-    Save FAISS index to file.
+    Save FAISS index to disk.
     
     Args:
-        index: FAISS index to save
-        directory: Directory to save in
-        filename: Name of index file
+        index: FAISS index
+        file_path: Path to save to
     """
-    index_path = os.path.join(directory, filename)
-    faiss.write_index(index, index_path)
-
-def load_index(
-    directory: str,
-    filename: str = "index.faiss"
-) -> Any:
+    try:
+        faiss.write_index(index, file_path)
+        logger.info(f"Saved FAISS index to {file_path}")
+    except Exception as e:
+        raise StorageError(f"Failed to save FAISS index to {file_path}: {str(e)}") from e
+        
+def load_index(file_path: str) -> faiss.Index:
     """
-    Load FAISS index from file.
+    Load FAISS index from disk.
     
     Args:
-        directory: Directory containing index
-        filename: Name of index file
+        file_path: Path to load from
         
     Returns:
-        Loaded FAISS index
+        FAISS index
     """
-    index_path = os.path.join(directory, filename)
-    return faiss.read_index(index_path)
-
-def save_data(
-    data: Any,
-    directory: str,
-    filename: str
-) -> None:
+    try:
+        index = faiss.read_index(file_path)
+        logger.info(f"Loaded FAISS index from {file_path}")
+        return index
+    except Exception as e:
+        raise StorageError(f"Failed to load FAISS index from {file_path}: {str(e)}") from e
+        
+def save_data(data: Any, file_path: str) -> None:
     """
-    Save data to pickle file.
+    Save data to disk using pickle.
     
     Args:
         data: Data to save
-        directory: Directory to save in
-        filename: Name of data file
+        file_path: Path to save to
     """
-    data_path = os.path.join(directory, filename)
-    with open(data_path, "wb") as f:
-        pickle.dump(data, f)
-
-def load_data(
-    directory: str,
-    filename: str
-) -> Any:
+    try:
+        with open(file_path, 'wb') as f:
+            pickle.dump(data, f)
+        logger.info(f"Saved data to {file_path}")
+    except Exception as e:
+        raise StorageError(f"Failed to save data to {file_path}: {str(e)}") from e
+        
+def load_data(file_path: str) -> Any:
     """
-    Load data from pickle file.
+    Load data from disk using pickle.
     
     Args:
-        directory: Directory containing data
-        filename: Name of data file
+        file_path: Path to load from
         
     Returns:
         Loaded data
     """
-    data_path = os.path.join(directory, filename)
-    with open(data_path, "rb") as f:
-        return pickle.load(f)
+    try:
+        with open(file_path, 'rb') as f:
+            data = pickle.load(f)
+        logger.info(f"Loaded data from {file_path}")
+        return data
+    except Exception as e:
+        raise StorageError(f"Failed to load data from {file_path}: {str(e)}") from e
